@@ -32,20 +32,15 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
 
         public SharedMemoryMap(ILoggerFactory loggerFactory, IMemoryMappedFileAccessor mapAccessor, string mapName, MemoryMappedFile memoryMappedFile)
         {
-            if (memoryMappedFile == null)
-            {
-                throw new ArgumentNullException(nameof(memoryMappedFile));
-            }
-
             if (string.IsNullOrEmpty(mapName))
             {
                 throw new ArgumentException(nameof(mapName));
             }
 
+            _memoryMappedFile = memoryMappedFile ?? throw new ArgumentNullException(nameof(memoryMappedFile));
             _loggerFactory = loggerFactory;
             _logger = _loggerFactory.CreateLogger<SharedMemoryMap>();
             _mapName = mapName;
-            _memoryMappedFile = memoryMappedFile;
             _mapAccessor = mapAccessor;
         }
 
@@ -58,6 +53,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
         public async Task<long> PutStreamAsync(Stream content)
         {
             long contentLength = content.Length;
+            long originalPosition = content.Position;
 
             try
             {
@@ -80,6 +76,13 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
                 _mapAccessor.Delete(_mapName, _memoryMappedFile);
 
                 _logger.LogError(e, "Cannot put stream into shared memory map: {MapName)", _mapName);
+
+                // Seek the input stream back to the original position it was given with
+                if (content.CanSeek)
+                {
+                    content.Seek(originalPosition, SeekOrigin.Begin);
+                }
+
                 return 0;
             }
         }
@@ -161,6 +164,35 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
             if (contentLength >= 0)
             {
                 return _memoryMappedFile.CreateViewStream(SharedMemoryConstants.HeaderTotalBytes, contentLength);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Get a <see cref="Stream"/> over the content stored in this <see cref="SharedMemoryMap"/> starting from the offset
+        /// for a total of the content length specified.
+        /// </summary>
+        /// <param name="offset">Offset to start reading the content from.</param>
+        /// <param name="count">Number of bytes to read. -1 means read to completion.</param>
+        /// <returns><see cref="Stream"/> over the content if successful, <see cref="null"/> otherwise.</returns>
+        public async Task<Stream> GetStreamAsync(int offset, int count)
+        {
+            // TODO add tests
+            long contentLength = await GetContentLengthAsync();
+            if (contentLength >= 0)
+            {
+                if (count > contentLength || offset < 0)
+                {
+                    return null;
+                }
+
+                if (count == -1)
+                {
+                    count = (int)contentLength;
+                }
+
+                return _memoryMappedFile.CreateViewStream(SharedMemoryConstants.HeaderTotalBytes + offset, count);
             }
 
             return null;

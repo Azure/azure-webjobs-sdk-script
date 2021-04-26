@@ -57,5 +57,13 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
         /// <param name="mapName">Name of the shared memory map to free.</param>
         /// <returns><see cref="true"/> if the shared memory map was freed, <see cref="false"/> otherwise.</returns>
         bool TryFreeSharedMemoryMap(string mapName);
+
+        /// <summary>
+        /// Track a particular shared memory map.
+        /// Used to hold a reference to a shared memory map so the OS does not clean it up.
+        /// </summary>
+        /// <param name="mapName">Name of the shared memory map.</param>
+        /// </summary>
+        bool TryTrackSharedMemoryMap(string mapName);
     }
 }

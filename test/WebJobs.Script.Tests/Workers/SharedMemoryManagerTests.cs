@@ -66,8 +66,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
 
                 // Verify expected results
                 Assert.NotNull(metadata);
-                Assert.NotNull(metadata.Name);
-                Assert.True(Guid.TryParse(metadata.Name, out _));
+                Assert.NotNull(metadata.MemoryMapName);
+                Assert.True(Guid.TryParse(metadata.MemoryMapName, out _));
                 Assert.Equal(contentSize, metadata.Count);
             }
         }
@@ -88,8 +88,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
 
                 // Verify expected results
                 Assert.NotNull(metadata);
-                Assert.NotNull(metadata.Name);
-                Assert.True(Guid.TryParse(metadata.Name, out _));
+                Assert.NotNull(metadata.MemoryMapName);
+                Assert.True(Guid.TryParse(metadata.MemoryMapName, out _));
                 Assert.Equal(content.Length, metadata.Count);
             }
         }
@@ -114,7 +114,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
                 SharedMemoryMetadata metadata = await manager.PutObjectAsync(content);
 
                 // Get object from shared memory
-                object readObject = await manager.GetObjectAsync(metadata.Name, 0, contentSize, typeof(byte[]));
+                object readObject = await manager.GetObjectAsync(metadata.MemoryMapName, 0, contentSize, typeof(byte[]));
                 byte[] readContent = readObject as byte[];
 
                 // Verify read content matches the content that was written
@@ -137,7 +137,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
                 SharedMemoryMetadata metadata = await manager.PutObjectAsync(content);
 
                 // Get object from shared memory
-                object readObject = await manager.GetObjectAsync(metadata.Name, 0, content.Length, typeof(string));
+                object readObject = await manager.GetObjectAsync(metadata.MemoryMapName, 0, content.Length, typeof(string));
                 string readContent = readObject as string;
 
                 // Verify read content matches the content that was written
@@ -219,7 +219,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
             {
                 // Put content into shared memory
                 SharedMemoryMetadata metadata = await manager.PutObjectAsync(content);
-                string mapName = metadata.Name;
+                string mapName = metadata.MemoryMapName;
 
                 // Free the shared memory map and try top open it after freeing; should not open
                 Assert.True(manager.TryFreeSharedMemoryMap(mapName));
@@ -246,10 +246,10 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
             {
                 // Put content into shared memory and add mapping to invocations
                 SharedMemoryMetadata metadata1 = await manager.PutObjectAsync(content);
-                string mapName1 = metadata1.Name;
+                string mapName1 = metadata1.MemoryMapName;
                 manager.AddSharedMemoryMapForInvocation(invocationId1, mapName1);
                 SharedMemoryMetadata metadata2 = await manager.PutObjectAsync(content);
-                string mapName2 = metadata2.Name;
+                string mapName2 = metadata2.MemoryMapName;
                 manager.AddSharedMemoryMapForInvocation(invocationId2, mapName2);
 
                 // Free the shared memory maps for invocation1 and try top open it after freeing; should not open
@@ -351,10 +351,10 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
 
             // Put content into shared memory and add mapping to invocations
             SharedMemoryMetadata metadata1 = await manager.PutObjectAsync(content);
-            string mapName1 = metadata1.Name;
+            string mapName1 = metadata1.MemoryMapName;
             manager.AddSharedMemoryMapForInvocation(invocationId1, mapName1);
             SharedMemoryMetadata metadata2 = await manager.PutObjectAsync(content);
-            string mapName2 = metadata2.Name;
+            string mapName2 = metadata2.MemoryMapName;
             manager.AddSharedMemoryMapForInvocation(invocationId2, mapName2);
 
             // Open the shared memory map; should open

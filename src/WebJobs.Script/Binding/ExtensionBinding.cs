@@ -9,8 +9,11 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Threading.Tasks;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Description;
 using Microsoft.Azure.WebJobs.Script.Description;
 using Microsoft.Azure.WebJobs.Script.Extensibility;
+using Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer;
 using Newtonsoft.Json.Linq;
 
 namespace Microsoft.Azure.WebJobs.Script.Binding
@@ -60,6 +63,19 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
             }
             else if (_binding.DefaultType == typeof(Stream))
             {
+                // TODO the sharedMemoryObject contains a "copy" of the value too - we should probably get rid of that
+                // and make the extension just read directly from shared memory
+                SharedMemoryObject sharedMemoryObject = context.Value as SharedMemoryObject;
+                if (sharedMemoryObject != null)
+                {
+                    // TODO this first copy is needed because each invocation will have a separate (unqiue) mapName.
+                    // Therefore, we first copy the attributes and then add a specific attribute (mapName) for that invocation.
+                    // This cloning first may be slow so is there a better way?
+                    var currentAttributes = Attributes.ToList();
+                    currentAttributes.Add(new SharedMemoryAttribute(sharedMemoryObject.MemoryMapName, sharedMemoryObject.Count));
+                    context.Attributes = currentAttributes.ToArray();
+                }
+
                 await BindStreamAsync(context, Access);
             }
             else if (_binding.DefaultType == typeof(JObject))

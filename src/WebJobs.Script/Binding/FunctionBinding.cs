@@ -10,9 +10,12 @@ using System.IO;
 using System.Reflection.Emit;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Azure.WebJobs.Description;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Script.Description;
 using Microsoft.Azure.WebJobs.Script.Extensibility;
+using Microsoft.Azure.WebJobs.Script.Workers.FunctionDataCache;
+using Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -240,6 +243,14 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
 
         public static void ConvertValueToStream(object value, Stream stream)
         {
+            // If the object is wrapped as a SharedMemoryObject, extract the inner value and
+            // use that value and its corresponding type for further conversion.
+            SharedMemoryObject sharedMemoryObject = value as SharedMemoryObject;
+            if (sharedMemoryObject != null)
+            {
+                value = sharedMemoryObject.Content;
+            }
+
             Stream valueStream = value as Stream;
             if (valueStream == null)
             {
@@ -247,6 +258,7 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
                 // to the stream
                 byte[] bytes = null;
                 Type type = value.GetType();
+
                 if (type == typeof(byte[]))
                 {
                     bytes = (byte[])value;
@@ -312,10 +324,25 @@ namespace Microsoft.Azure.WebJobs.Script.Binding
                     }
                     break;
                 case DataType.Binary:
-                    using (MemoryStream ms = new MemoryStream())
+                    if (stream is FunctionDataCacheStream)
                     {
-                        stream.CopyTo(ms);
-                        converted = ms.ToArray();
+                        // TODO explain what is happening here
+                        FunctionDataCacheStream cacheStream = stream as FunctionDataCacheStream;
+                        converted = cacheStream.SharedMemoryMetadata;
+                    }
+                    else if (stream is CacheableObjectStream)
+                    {
+                        // TODO explain what is happening here, delay the reading to the shared memory manager
+                        CacheableObjectStream cachableObjStream = stream as CacheableObjectStream;
+                        converted = cachableObjStream;
+                    }
+                    else
+                    {
+                        using (MemoryStream ms = new MemoryStream())
+                        {
+                            stream.CopyTo(ms);
+                            converted = ms.ToArray();
+                        }
                     }
                     break;
                 case DataType.Stream:

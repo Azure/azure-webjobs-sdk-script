@@ -41,6 +41,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         private readonly IEnvironment _environment;
         private readonly IOptionsMonitor<ScriptApplicationHostOptions> _applicationHostOptions;
         private readonly ISharedMemoryManager _sharedMemoryManager;
+        private readonly IFunctionDataCache _functionDataCache;
 
         private IDisposable _functionLoadRequestResponseEvent;
         private bool _disposed;
@@ -78,7 +79,8 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
            int attemptCount,
            IEnvironment environment,
            IOptionsMonitor<ScriptApplicationHostOptions> applicationHostOptions,
-           ISharedMemoryManager sharedMemoryManager)
+           ISharedMemoryManager sharedMemoryManager,
+           IFunctionDataCache functionDataCache)
         {
             _workerId = workerId;
             _eventManager = eventManager;
@@ -90,6 +92,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             _environment = environment;
             _applicationHostOptions = applicationHostOptions;
             _sharedMemoryManager = sharedMemoryManager;
+            _functionDataCache = functionDataCache;
 
             _workerCapabilities = new GrpcCapabilities(_workerChannelLogger);
 
@@ -416,7 +419,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                         context.ResultSource.SetCanceled();
                         return;
                     }
-                    var invocationRequest = await context.ToRpcInvocationRequest(_workerChannelLogger, _workerCapabilities, _isSharedMemoryDataTransferEnabled, _sharedMemoryManager);
+                    var invocationRequest = await context.ToRpcInvocationRequest(_workerChannelLogger, _workerCapabilities, _isSharedMemoryDataTransferEnabled, _sharedMemoryManager, _functionDataCache);
                     _executingInvocations.TryAdd(invocationRequest.InvocationId, context);
 
                     SendStreamingMessage(new StreamingMessage
@@ -437,7 +440,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             {
                 case ParameterBindingType.RpcSharedMemory:
                     // Data was transferred by the worker using shared memory
-                    return await binding.RpcSharedMemory.ToObjectAsync(_workerChannelLogger, invocationId, _sharedMemoryManager);
+                    return await binding.RpcSharedMemory.ToObjectAsync(_workerChannelLogger, invocationId, _sharedMemoryManager, _functionDataCache.IsEnabled);
                 case ParameterBindingType.Data:
                     // Data was transferred by the worker using RPC
                     return binding.Data.ToObject();
@@ -511,7 +514,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                 }
                 finally
                 {
-                    // Free memory allocated by the host (for input bindings)
+                    // Free memory allocated by the host (for input bindings) which was needed only for the duration of this invocation
                     if (!_sharedMemoryManager.TryFreeSharedMemoryMapsForInvocation(invokeResponse.InvocationId))
                     {
                         _workerChannelLogger.LogWarning($"Cannot free all shared memory resources for invocation: {invokeResponse.InvocationId}");
@@ -534,6 +537,12 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         /// <param name="outputMaps">List of names of shared memory maps to close from the worker.</param>
         internal void SendCloseSharedMemoryResourcesForInvocationRequest(IList<string> outputMaps)
         {
+            // Request the worker to drop its references to any shared memory maps that it had produced.
+            // This is because the host has read them (or holds a reference to them if caching is enabled.)
+            // The worker will not delete the resources allocated for the memory maps; it will only drop its reference
+            // so that the worker process does not prevent the OS from freeing the memory maps when the host attempts
+            // to free them (either right away after reading them or if caching is enabled, then when the cache decides
+            // to evict that object based on its eviction policy).
             CloseSharedMemoryResourcesRequest closeSharedMemoryResourcesRequest = new CloseSharedMemoryResourcesRequest();
             closeSharedMemoryResourcesRequest.MapNames.AddRange(outputMaps);
 

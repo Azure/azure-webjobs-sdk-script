@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Linq;
 using System.Text;
@@ -31,9 +32,9 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
             _loggerFactory = loggerFactory;
             _logger = _loggerFactory.CreateLogger<SharedMemoryManager>();
             _mapAccessor = mapAccessor;
+            _isDisposed = false;
             AllocatedSharedMemoryMaps = new ConcurrentDictionary<string, SharedMemoryMap>();
             InvocationSharedMemoryMaps = new ConcurrentDictionary<string, HashSet<string>>();
-            _isDisposed = false;
         }
 
         /// <summary>
@@ -52,10 +53,13 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
             {
                 return PutBytesAsync(arr);
             }
-
-            if (input is string str)
+            else if (input is string str)
             {
                 return PutStringAsync(str);
+            }
+            else if (input is Stream stream)
+            {
+                return PutStreamAsync(stream);
             }
 
             return null;
@@ -72,6 +76,12 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
             if (objectType == typeof(byte[]))
             {
                 return await GetBytesAsync(mapName, offset, count);
+            }
+            else if (objectType == typeof(SharedMemoryObject))
+            {
+                // TODO add tests
+                Stream contentStream = await GetStreamAsync(mapName, offset, count);
+                return new SharedMemoryObject(mapName, count, contentStream);
             }
             else if (objectType == typeof(string))
             {
@@ -109,12 +119,21 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
 
         public bool TryFreeSharedMemoryMap(string mapName)
         {
+            // Check if the shared memory map was allocated by the host
             if (!AllocatedSharedMemoryMaps.TryRemove(mapName, out SharedMemoryMap sharedMemoryMap))
             {
-                _logger.LogTrace("Cannot find SharedMemoryMap: {mapName}", mapName);
-                return false;
+                // The shared memory map was not allocated by the host (could be allocated by the worker),
+                // but we still try to open it.
+                sharedMemoryMap = Open(mapName);
+                if (sharedMemoryMap == null)
+                {
+                    // Shared memory map was not found
+                    _logger.LogTrace("Cannot find SharedMemoryMap: {mapName}", mapName);
+                    return false;
+                }
             }
 
+            // Delete the shared memory map and its resources
             sharedMemoryMap.Dispose();
             return true;
         }
@@ -143,10 +162,35 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
                 _logger.LogTrace("Cannot transfer string over shared memory; size {Size} not supported", strBytes);
                 return false;
             }
+            else if (input is CacheableObjectStream stream)
+            {
+                long streamBytes = stream.Length;
+                if (streamBytes >= SharedMemoryConstants.MinObjectBytesForSharedMemoryTransfer && streamBytes <= SharedMemoryConstants.MaxObjectBytesForSharedMemoryTransfer)
+                {
+                    return true;
+                }
+
+                _logger.LogTrace("Cannot transfer bytes over shared memory; size {Size} not supported", streamBytes);
+                return false;
+            }
+            else if (input is SharedMemoryMetadata)
+            {
+                return true;
+            }
 
             Type objType = input.GetType();
             _logger.LogTrace("Cannot transfer object over shared memory; type {Type} not supported", objType);
             return false;
+        }
+
+        public bool TryTrackSharedMemoryMap(string mapName)
+        {
+            SharedMemoryMap sharedMemoryMap = Open(mapName);
+            if (sharedMemoryMap == null)
+            {
+                return false;
+            }
+            return AllocatedSharedMemoryMaps.TryAdd(mapName, sharedMemoryMap);
         }
 
         /// <summary>
@@ -221,11 +265,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
             }
 
             // Respond back with metadata about the created and written shared memory map
-            SharedMemoryMetadata response = new SharedMemoryMetadata
-            {
-                Name = mapName,
-                Count = contentSize
-            };
+            SharedMemoryMetadata response = new SharedMemoryMetadata(mapName, contentSize);
             return response;
         }
 
@@ -240,6 +280,52 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
         {
             byte[] contentBytes = Encoding.UTF8.GetBytes(content);
             return PutBytesAsync(contentBytes);
+        }
+
+        /// <summary>
+        /// Writes the given <see cref="Stream"/> data into a <see cref="SharedMemoryMap"/>.
+        /// Note:
+        /// Tracks the reference to the <see cref="SharedMemoryMap"/> after creating it and does not close it.
+        /// </summary>
+        /// <param name="content">Content to write into shared memory.</param>
+        /// <returns>Metadata of the shared memory map into which data is written if successful, <see cref="null"/> otherwise.</returns>
+        private async Task<SharedMemoryMetadata> PutStreamAsync(Stream content)
+        {
+            // Generate name of shared memory map to write content into
+            string mapName = Guid.NewGuid().ToString();
+
+            // Create shared memory map which can hold the content
+            long contentSize = content.Length;
+            SharedMemoryMap sharedMemoryMap = Create(mapName, contentSize);
+
+            // Ensure the shared memory map was created
+            if (sharedMemoryMap == null)
+            {
+                _logger.LogError("Cannot write content into shared memory");
+                return null;
+            }
+
+            // Write content into shared memory map
+            long bytesWritten = await sharedMemoryMap.PutStreamAsync(content);
+
+            // Ensure that the entire content has been written into the shared memory map
+            if (bytesWritten != contentSize)
+            {
+                _logger.LogError("Cannot write complete content into shared memory map: {MapName}; wrote: {BytesWritten} bytes out of total: {ContentSize} bytes", mapName, bytesWritten, contentSize);
+                return null;
+            }
+
+            // Track the shared memory map (to keep a reference open so that the OS does not free the memory)
+            if (!AllocatedSharedMemoryMaps.TryAdd(mapName, sharedMemoryMap))
+            {
+                _logger.LogError("Cannot add shared memory map: {MapName} to list of allocated maps", mapName);
+                sharedMemoryMap.Dispose();
+                return null;
+            }
+
+            // Respond back with metadata about the created and written shared memory map
+            SharedMemoryMetadata response = new SharedMemoryMetadata(mapName, contentSize);
+            return response;
         }
 
         /// <summary>
@@ -284,6 +370,37 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
         {
             byte[] contentBytes = await GetBytesAsync(mapName, offset, count);
             return Encoding.UTF8.GetString(contentBytes);
+        }
+
+        /// <summary>
+        /// Gets a <see cref="Stream"/> over the data from the <see cref="SharedMemoryMap"/> with the given name.
+        /// </summary>
+        /// <param name="mapName">Name of the <see cref="MemoryMappedFile"/> to read from.</param>
+        /// <param name="offset">Offset to start reading data from in the <see cref="SharedMemoryMap"/>.</param>
+        /// <param name="count">Number of bytes to read from, starting from the offset, in the <see cref="SharedMemoryMap"/>.</param>
+        /// <returns><see cref="Stream"/> over the data if successful, <see cref="null"/> otherwise.
+        /// </returns>
+        private async Task<Stream> GetStreamAsync(string mapName, int offset, int count)
+        {
+            // TODO add tests.
+            SharedMemoryMap sharedMemoryMap = Open(mapName);
+
+            try
+            {
+                Stream content = await sharedMemoryMap.GetStreamAsync(offset, count);
+
+                if (content == null)
+                {
+                    _logger.LogError($"Cannot get Stream of MemoryMappedFile: {mapName}");
+                    throw new Exception($"Cannot get Stream of MemoryMappedFile: {mapName} with offset: {offset} and count: {count}");
+                }
+
+                return content;
+            }
+            finally
+            {
+                sharedMemoryMap.Dispose(deleteFile: false);
+            }
         }
 
         /// <summary>

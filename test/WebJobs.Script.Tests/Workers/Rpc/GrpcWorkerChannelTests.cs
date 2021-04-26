@@ -14,6 +14,7 @@ using Microsoft.Azure.WebJobs.Script.Grpc;
 using Microsoft.Azure.WebJobs.Script.Grpc.Eventing;
 using Microsoft.Azure.WebJobs.Script.Grpc.Messages;
 using Microsoft.Azure.WebJobs.Script.Workers;
+using Microsoft.Azure.WebJobs.Script.Workers.FunctionDataCache;
 using Microsoft.Azure.WebJobs.Script.Workers.Rpc;
 using Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer;
 using Microsoft.Extensions.Logging;
@@ -47,6 +48,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
         private readonly IOptionsMonitor<ScriptApplicationHostOptions> _hostOptionsMonitor;
         private readonly IMemoryMappedFileAccessor _mapAccessor;
         private readonly ISharedMemoryManager _sharedMemoryManager;
+        private readonly IFunctionDataCache _functionDataCache;
         private GrpcWorkerChannel _workerChannel;
 
         public GrpcWorkerChannelTests()
@@ -66,6 +68,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
                 _mapAccessor = new MemoryMappedFileAccessorUnix(mmapAccessorLogger, _testEnvironment);
             }
             _sharedMemoryManager = new SharedMemoryManager(_loggerFactory, _mapAccessor);
+            _functionDataCache = new FunctionDataCache(_sharedMemoryManager, _loggerFactory, _testEnvironment);
 
             var hostOptions = new ScriptApplicationHostOptions
             {
@@ -87,7 +90,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
                0,
                _testEnvironment,
                _hostOptionsMonitor,
-               _sharedMemoryManager);
+               _sharedMemoryManager,
+               _functionDataCache);
         }
 
         public void Dispose()
@@ -168,7 +172,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
                0,
                _testEnvironment,
                _hostOptionsMonitor,
-               _sharedMemoryManager);
+               _sharedMemoryManager,
+               _functionDataCache);
             await Assert.ThrowsAsync<FileNotFoundException>(async () => await _workerChannel.StartWorkerProcessAsync());
         }
 
@@ -280,7 +285,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
                0,
                _testEnvironment,
                _hostOptionsMonitor,
-               _sharedMemoryManager);
+               _sharedMemoryManager,
+               _functionDataCache);
             channel.SetupFunctionInvocationBuffers(GetTestFunctionsList("node"));
             ScriptInvocationContext scriptInvocationContext = GetTestScriptInvocationContext(invocationId, resultSource);
             await channel.SendInvocationRequest(scriptInvocationContext);
