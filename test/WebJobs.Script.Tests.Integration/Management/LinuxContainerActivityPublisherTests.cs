@@ -18,6 +18,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Integration.Management
 {
     public class LinuxContainerActivityPublisherTests
     {
+        private const int InitialFlushIntervalMs = 1;
         private const int FlushIntervalMs = 2;
         private const int DelayIntervalMs = 500;
 
@@ -31,6 +32,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Integration.Management
             environment.SetEnvironmentVariable(EnvironmentSettingNames.ContainerName, "Container-Name");
 
             var meshClient = new Mock<IMeshServiceClient>();
+            meshClient.Setup(c => c.NotifyHealthEvent(ContainerHealthEventType.Informational, It.IsAny<Type>(),
+                LinuxContainerActivityPublisher.SpecializationCompleteEvent)).Returns(Task.FromResult(true));
             meshClient.Setup(c =>
                 c.PublishContainerActivity(
                     It.IsAny<IEnumerable<ContainerFunctionExecutionActivity>>())).Returns(Task.FromResult(true));
@@ -38,17 +41,53 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Integration.Management
             var standbyOptions = new TestOptionsMonitor<StandbyOptions>(new StandbyOptions { InStandbyMode = false });
 
             using (var publisher = new LinuxContainerActivityPublisher(standbyOptions, meshClient.Object,
-                environment, NullLogger<LinuxContainerActivityPublisher>.Instance, FlushIntervalMs))
+                environment, NullLogger<LinuxContainerActivityPublisher>.Instance, FlushIntervalMs, InitialFlushIntervalMs))
             {
                 await publisher.StartAsync(CancellationToken.None);
                 publisher.PublishFunctionExecutionActivity(activity);
                 await Task.Delay(DelayIntervalMs);
                 await publisher.StopAsync(CancellationToken.None);
 
+                meshClient.Verify(c => c.NotifyHealthEvent(ContainerHealthEventType.Informational, It.IsAny<Type>(),
+                    LinuxContainerActivityPublisher.SpecializationCompleteEvent), Times.Once);
                 meshClient.Verify(
                     c => c.PublishContainerActivity(
                         It.Is<IEnumerable<ContainerFunctionExecutionActivity>>(e =>
                             MatchesFunctionActivities(e, activity))), Times.Once);
+            }
+        }
+
+        [Fact]
+        public async Task PublishesSpecializationCompleteEvent()
+        {
+            var activity = new ContainerFunctionExecutionActivity(DateTime.MinValue, "func-1",
+                ExecutionStage.InProgress, "trigger-1", false);
+
+            var environment = new TestEnvironment();
+            environment.SetEnvironmentVariable(EnvironmentSettingNames.ContainerName, "Container-Name");
+
+            var meshClient = new Mock<IMeshServiceClient>(MockBehavior.Strict);
+            meshClient.Setup(c => c.NotifyHealthEvent(ContainerHealthEventType.Informational, It.IsAny<Type>(),
+                LinuxContainerActivityPublisher.SpecializationCompleteEvent)).Returns(Task.FromResult(true));
+
+            var standbyOptions = new TestOptionsMonitor<StandbyOptions>(new StandbyOptions { InStandbyMode = false });
+
+            using (var publisher = new LinuxContainerActivityPublisher(standbyOptions, meshClient.Object,
+                environment, NullLogger<LinuxContainerActivityPublisher>.Instance, 1000, InitialFlushIntervalMs))
+            {
+                await publisher.StartAsync(CancellationToken.None);
+                publisher.PublishFunctionExecutionActivity(activity);
+                await Task.Delay(100);
+                await publisher.StopAsync(CancellationToken.None);
+
+                meshClient.Verify(c => c.NotifyHealthEvent(ContainerHealthEventType.Informational, It.IsAny<Type>(),
+                    LinuxContainerActivityPublisher.SpecializationCompleteEvent), Times.Once);
+
+                // Since test is waiting for 100ms and Flush interval is 1000ms, there will be no PublishContainerActivity
+                meshClient.Verify(
+                    c => c.PublishContainerActivity(
+                        It.Is<IEnumerable<ContainerFunctionExecutionActivity>>(e =>
+                            MatchesFunctionActivities(e, activity))), Times.Never);
             }
         }
 
@@ -66,7 +105,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Integration.Management
             var standbyOptions = new TestOptionsMonitor<StandbyOptions>(new StandbyOptions { InStandbyMode = true });
 
             using (var publisher = new LinuxContainerActivityPublisher(standbyOptions, meshClient.Object,
-                environment, NullLogger<LinuxContainerActivityPublisher>.Instance, FlushIntervalMs))
+                environment, NullLogger<LinuxContainerActivityPublisher>.Instance, FlushIntervalMs, InitialFlushIntervalMs))
             {
                 await publisher.StartAsync(CancellationToken.None);
                 publisher.PublishFunctionExecutionActivity(activity);
@@ -91,7 +130,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Integration.Management
             try
             {
                 using (var publisher = new LinuxContainerActivityPublisher(standbyOptions, meshClient.Object,
-                    environment, NullLogger<LinuxContainerActivityPublisher>.Instance, FlushIntervalMs))
+                    environment, NullLogger<LinuxContainerActivityPublisher>.Instance, FlushIntervalMs, InitialFlushIntervalMs))
                 {
                 }
             }
@@ -125,7 +164,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Integration.Management
             var standbyOptions = new TestOptionsMonitor<StandbyOptions>(new StandbyOptions { InStandbyMode = false });
 
             using (var publisher = new LinuxContainerActivityPublisher(standbyOptions, meshClient.Object,
-                environment, NullLogger<LinuxContainerActivityPublisher>.Instance, FlushIntervalMs))
+                environment, NullLogger<LinuxContainerActivityPublisher>.Instance, FlushIntervalMs, InitialFlushIntervalMs))
             {
                 await publisher.StartAsync(CancellationToken.None);
                 publisher.PublishFunctionExecutionActivity(activity1);

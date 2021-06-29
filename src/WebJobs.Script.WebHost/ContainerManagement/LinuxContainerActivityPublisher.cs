@@ -16,12 +16,15 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.ContainerManagement
 {
     public class LinuxContainerActivityPublisher : IHostedService, IDisposable, ILinuxContainerActivityPublisher
     {
+        public const string SpecializationCompleteEvent = "SpecializationCompleted";
+        private const int InitialFlushIntervalMs = 5 * 1000; // 5 seconds
         private const int FlushIntervalMs = 20 * 1000; // 20 seconds
         private const int LockTimeOutMs = 1 * 1000; // 1 second
 
         private readonly ReaderWriterLockSlim _activitiesLock = new ReaderWriterLockSlim();
         private readonly IMeshServiceClient _meshServiceClient;
         private readonly ILogger<LinuxContainerActivityPublisher> _logger;
+        private readonly int _initialFlushIntervalMs;
         private readonly int _flushIntervalMs;
         private readonly IOptionsMonitor<StandbyOptions> _standbyOptions;
         private readonly HashSet<ContainerFunctionExecutionActivity> _uniqueActivities;
@@ -29,10 +32,11 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.ContainerManagement
         private DateTime _lastHeartBeatTime = DateTime.MinValue;
         private Timer _timer;
         private int _flushInProgress;
+        private bool _initialPublish;
 
         public LinuxContainerActivityPublisher(IOptionsMonitor<StandbyOptions> standbyOptions,
             IMeshServiceClient meshServiceClient, IEnvironment environment,
-            ILogger<LinuxContainerActivityPublisher> logger, int flushIntervalMs = FlushIntervalMs)
+            ILogger<LinuxContainerActivityPublisher> logger, int flushIntervalMs = FlushIntervalMs, int initialFlushIntervalMs = InitialFlushIntervalMs)
         {
             if (!environment.IsLinuxConsumption())
             {
@@ -44,9 +48,11 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.ContainerManagement
             _meshServiceClient = meshServiceClient;
             _logger = logger;
             _flushIntervalMs = flushIntervalMs;
+            _initialFlushIntervalMs = initialFlushIntervalMs;
             _timer = new Timer(OnTimer, null, Timeout.Infinite, Timeout.Infinite);
             _uniqueActivities = new HashSet<ContainerFunctionExecutionActivity>();
             _flushInProgress = 0;
+            _initialPublish = true;
         }
 
         private void Start()
@@ -54,7 +60,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.ContainerManagement
             _logger.LogInformation($"Starting {nameof(LinuxContainerActivityPublisher)}");
 
             // start the timer by setting the due time
-            SetTimerInterval(_flushIntervalMs);
+            SetTimerInterval(_initialFlushIntervalMs);
         }
 
         private void OnStandbyOptionsChange()
@@ -96,8 +102,31 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.ContainerManagement
 
         private async void OnTimer(object state)
         {
-            await FlushFunctionExecutionActivities();
-            SetTimerInterval(_flushIntervalMs);
+            if (_initialPublish)
+            {
+                _initialPublish = false;
+                await PublishSpecializationCompleteEvent();
+                SetTimerInterval(_flushIntervalMs - _initialFlushIntervalMs);
+            }
+            else
+            {
+                await FlushFunctionExecutionActivities();
+                SetTimerInterval(_flushIntervalMs);
+            }
+        }
+
+        private async Task PublishSpecializationCompleteEvent()
+        {
+            try
+            {
+                await _meshServiceClient.NotifyHealthEvent(ContainerHealthEventType.Informational, GetType(),
+                    SpecializationCompleteEvent);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"{nameof(PublishSpecializationCompleteEvent)} failed with {ex}",
+                    nameof(PublishSpecializationCompleteEvent), ex);
+            }
         }
 
         private async Task FlushFunctionExecutionActivities()

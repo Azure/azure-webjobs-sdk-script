@@ -63,6 +63,8 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Management
                 if (context.MSIContext == null)
                 {
                     _logger.LogWarning("Skipping specialization of MSI sidecar since MSIContext was absent");
+                    await _meshServiceClient.NotifyHealthEvent(ContainerHealthEventType.Fatal, this.GetType(),
+                        "Could not specialize MSI sidecar");
                 }
                 else
                 {
@@ -250,7 +252,8 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Management
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Assign failed");
+                _logger.LogError(ex, "Assign failed");
+                await _meshServiceClient.NotifyHealthEvent(ContainerHealthEventType.Fatal, GetType(), "Assign failed");
                 throw;
             }
             finally
