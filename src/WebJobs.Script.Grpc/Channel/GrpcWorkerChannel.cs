@@ -254,7 +254,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             _functions = functions;
             foreach (FunctionMetadata metadata in functions)
             {
-                _workerChannelLogger.LogDebug("Setting up FunctionInvocationBuffer for function:{functionName} with functionId:{id}", metadata.Name, metadata.GetFunctionId());
+                _workerChannelLogger.LogDebug("Setting up FunctionInvocationBuffer for function: '{functionName}' with functionId: '{functionId}'", metadata.Name, metadata.GetFunctionId());
                 _functionInputBuffers[metadata.GetFunctionId()] = new BufferBlock<ScriptInvocationContext>();
             }
             _state = _state | RpcWorkerChannelState.InvocationBuffersInitialized;
@@ -327,7 +327,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         internal void SendFunctionLoadRequest(FunctionMetadata metadata, ManagedDependencyOptions managedDependencyOptions)
         {
             _functionLoadRequestResponseEvent = _metricsLogger.LatencyEvent(MetricEventNames.FunctionLoadRequestResponse);
-            _workerChannelLogger.LogDebug("Sending FunctionLoadRequest for function:{functionName} with functionId:{id}", metadata.Name, metadata.GetFunctionId());
+            _workerChannelLogger.LogDebug("Sending FunctionLoadRequest for function:'{functionName}' with functionId:'{functionId}'", metadata.Name, metadata.GetFunctionId());
 
             // send a load request for the registered function
             SendStreamingMessage(new StreamingMessage
@@ -369,16 +369,17 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         internal void LoadResponse(FunctionLoadResponse loadResponse)
         {
             _functionLoadRequestResponseEvent?.Dispose();
-            _workerChannelLogger.LogDebug("Received FunctionLoadResponse for functionId:{functionId}", loadResponse.FunctionId);
+            string functionName = _functions.SingleOrDefault(m => m.GetFunctionId().Equals(loadResponse.FunctionId, StringComparison.OrdinalIgnoreCase))?.Name;
+            _workerChannelLogger.LogDebug("Received FunctionLoadResponse for function: '{functionName}' with functionId: '{functionId}'.", functionName, loadResponse.FunctionId);
             if (loadResponse.Result.IsFailure(out Exception functionLoadEx))
             {
                 if (functionLoadEx == null)
                 {
-                    _workerChannelLogger?.LogError("Worker failed to function id {functionId}. Function load exception is not set by the worker", loadResponse.FunctionId);
+                    _workerChannelLogger?.LogError("Worker failed to to load function: '{functionName}' with function id: '{functionId}'. Function load exception is not set by the worker.", functionName, loadResponse.FunctionId);
                 }
                 else
                 {
-                    _workerChannelLogger?.LogError(functionLoadEx, "Worker failed to function id {functionId}.", loadResponse.FunctionId);
+                    _workerChannelLogger?.LogError(functionLoadEx, "Worker failed to load function: '{functionName}' with function id: '{functionId}'.", functionName, loadResponse.FunctionId);
                 }
                 //Cache function load errors to replay error messages on invoking failed functions
                 _functionLoadErrors[loadResponse.FunctionId] = functionLoadEx;
@@ -464,7 +465,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
 
         internal async Task InvokeResponse(InvocationResponse invokeResponse)
         {
-            _workerChannelLogger.LogDebug("InvocationResponse received for invocation id: {Id}", invokeResponse.InvocationId);
+            _workerChannelLogger.LogDebug("InvocationResponse received for invocation id: '{functionId}'", invokeResponse.InvocationId);
 
             if (_executingInvocations.TryRemove(invokeResponse.InvocationId, out ScriptInvocationContext context)
                 && invokeResponse.Result.IsSuccess(context.ResultSource))
@@ -703,7 +704,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             foreach (ScriptInvocationContext currContext in _executingInvocations?.Values)
             {
                 string invocationId = currContext?.ExecutionContext?.InvocationId.ToString();
-                _workerChannelLogger.LogDebug("Worker '{workerId}' encountered a fatal error. Failing invocation id: {Id}", _workerId, invocationId);
+                _workerChannelLogger.LogDebug("Worker '{workerId}' encountered a fatal error. Failing invocation id: '{functionId}'", _workerId, invocationId);
                 currContext?.ResultSource?.TrySetException(workerException);
                 _executingInvocations.TryRemove(invocationId, out ScriptInvocationContext _);
             }
