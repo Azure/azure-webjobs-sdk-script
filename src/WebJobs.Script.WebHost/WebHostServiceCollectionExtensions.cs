@@ -146,7 +146,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
             services.AddSingleton<ISharedMemoryManager, SharedMemoryManager>();
 
             // Grpc
-            services.AddGrpc();
+            services.AddScriptGrpc();
 
             // Register common services with the WebHost
             // Language Worker Hosted Services need to be intialized before WebJobsScriptHostService

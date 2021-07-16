@@ -72,7 +72,7 @@ namespace Microsoft.WebJobs.Script.Tests
                 })
                 .ConfigureServices(s =>
                 {
-                    s.AddGrpc();
+                    s.AddScriptGrpc();
                 });
 
             if (!runStartupHostedServices)

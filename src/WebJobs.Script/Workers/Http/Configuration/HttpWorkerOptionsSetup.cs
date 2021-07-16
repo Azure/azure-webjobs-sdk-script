@@ -112,7 +112,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Http
 
             options.Arguments.ExecutableArguments.AddRange(options.Description.Arguments);
             options.Arguments.WorkerArguments.AddRange(options.Description.WorkerArguments);
-            options.Port = GetUnusedTcpPort();
+            options.Port = WorkerUtilities.GetUnusedTcpPort();
         }
 
         private static List<string> GetArgumentList(IConfigurationSection workerConfigSection, string argumentSectionName)
@@ -129,16 +129,6 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Http
                 }
             }
             return null;
-        }
-
-        internal static int GetUnusedTcpPort()
-        {
-            using (Socket tcpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
-            {
-                tcpSocket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-                int port = ((IPEndPoint)tcpSocket.LocalEndPoint).Port;
-                return port;
-            }
         }
     }
 }
