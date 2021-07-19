@@ -792,26 +792,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         /// <returns><see cref="true"/> if shared memory data transfer is enabled, <see cref="false"/> otherwise.</returns>
         internal bool IsSharedMemoryDataTransferEnabled()
         {
-            // Check if the environment variable (AppSetting) has this feature enabled
-            string envVal = _environment.GetEnvironmentVariable(RpcWorkerConstants.FunctionsWorkerSharedMemoryDataTransferEnabledSettingName);
-            if (string.IsNullOrEmpty(envVal))
-            {
-                return false;
-            }
-
-            bool envValEnabled = false;
-            if (bool.TryParse(envVal, out bool boolResult))
-            {
-                // Check if value was specified as a bool (true/false)
-                envValEnabled = boolResult;
-            }
-            else if (int.TryParse(envVal, out int intResult) && intResult == 1)
-            {
-                // Check if value was specified as an int (1/0)
-                envValEnabled = true;
-            }
-
-            if (!envValEnabled)
+            if (!_environment.SupportsSharedMemoryTransfer())
             {
                 return false;
             }

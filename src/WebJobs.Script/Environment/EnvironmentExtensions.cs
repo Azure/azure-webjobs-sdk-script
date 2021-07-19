@@ -472,5 +472,33 @@ namespace Microsoft.Azure.WebJobs.Script
             return !string.IsNullOrEmpty(environment.GetEnvironmentVariable(KubernetesServiceHost)) ||
                 (bool.TryParse(environment.GetEnvironmentVariable(DrainOnApplicationStopping), out bool v) && v);
         }
+
+        /// <summary>
+        /// Determine if shared memory transfer is enabled in this environment.
+        /// <see cref="RpcWorkerConstants.FunctionsWorkerSharedMemoryDataTransferEnabledSettingName"/> must be set in environment variable (AppSetting).
+        /// </summary>
+        /// <returns><see cref="true"/> if shared memory data transfer is enabled, <see cref="false"/> otherwise.</returns>
+        public static bool SupportsSharedMemoryTransfer(this IEnvironment environment)
+        {
+            // Check if the environment variable (AppSetting) has this feature enabled
+            string envVal = environment.GetEnvironmentVariable(RpcWorkerConstants.FunctionsWorkerSharedMemoryDataTransferEnabledSettingName);
+            if (string.IsNullOrEmpty(envVal))
+            {
+                return false;
+            }
+
+            if (bool.TryParse(envVal, out bool boolResult))
+            {
+                // Check if value was specified as a bool (true/false)
+                return boolResult;
+            }
+            else if (int.TryParse(envVal, out int intResult) && intResult == 1)
+            {
+                // Check if value was specified as an int (1/0)
+                return true;
+            }
+
+            return false;
+        }
     }
 }

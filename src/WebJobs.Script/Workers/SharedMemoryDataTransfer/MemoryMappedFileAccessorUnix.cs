@@ -17,7 +17,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer
     /// </summary>
     public class MemoryMappedFileAccessorUnix : MemoryMappedFileAccessor
     {
-        private IEnvironment _environment;
+        private readonly IEnvironment _environment;
 
         public MemoryMappedFileAccessorUnix(ILogger<MemoryMappedFileAccessor> logger, IEnvironment environment) : base(logger)
         {

@@ -135,15 +135,30 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
             services.TryAddSingleton<ISecretManagerProvider, DefaultSecretManagerProvider>();
 
             // Shared memory data transfer
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            services.AddSingleton<ISharedMemoryManager>(p =>
             {
-                services.AddSingleton<IMemoryMappedFileAccessor, MemoryMappedFileAccessorWindows>();
-            }
-            else
-            {
-                services.AddSingleton<IMemoryMappedFileAccessor, MemoryMappedFileAccessorUnix>();
-            }
-            services.AddSingleton<ISharedMemoryManager, SharedMemoryManager>();
+                var environment = p.GetService<IEnvironment>();
+                if (!environment.SupportsSharedMemoryTransfer())
+                {
+                    return new NullSharedMemoryManager();
+                }
+                else
+                {
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    {
+                        services.AddSingleton<IMemoryMappedFileAccessor, MemoryMappedFileAccessorWindows>();
+                    }
+                    else
+                    {
+                        services.AddSingleton<IMemoryMappedFileAccessor, MemoryMappedFileAccessorUnix>();
+                    }
+
+                    var fileaccessor = p.GetService<IMemoryMappedFileAccessor>();
+                    var loggerFactory = p.GetService<ILoggerFactory>();
+
+                    return new SharedMemoryManager(loggerFactory, fileaccessor);
+                }
+            });
 
             // Grpc
             services.AddGrpc();
