@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Azure.WebJobs.Script.Description;
 using Microsoft.Azure.WebJobs.Script.Diagnostics;
 using Microsoft.Azure.WebJobs.Script.Eventing;
+using Microsoft.Azure.WebJobs.Script.Workers.Rpc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -200,6 +201,16 @@ namespace Microsoft.Azure.WebJobs.Script.Workers
         {
             await DisposeAndRestartWorkerChannel(_httpWorkerChannel.Id);    // Since there's only one channel for httpworker
             return true;
+        }
+
+        public void FinishInitialization(IEnumerable<FunctionMetadata> functions, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<IEnumerable<FunctionMetadata>> GetWorkerMetadata()
+        {
+            throw new NotImplementedException();
         }
     }
 }

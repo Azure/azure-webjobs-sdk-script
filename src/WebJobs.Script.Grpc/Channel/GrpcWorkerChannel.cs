@@ -64,7 +64,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         private IWorkerProcess _rpcWorkerProcess;
         private TaskCompletionSource<bool> _reloadTask = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         private TaskCompletionSource<bool> _workerInitTask = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        private TaskCompletionSource<List<FunctionMetadata>> _functionsIndexingTask = new TaskCompletionSource<List<FunctionMetadata>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource<IEnumerable<FunctionMetadata>> _functionsIndexingTask = new TaskCompletionSource<IEnumerable<FunctionMetadata>>(TaskCreationOptions.RunContinuationsAsynchronously);
         private TimeSpan _functionLoadTimeout = TimeSpan.FromMinutes(10);
         private bool _isSharedMemoryDataTransferEnabled;
 
@@ -428,12 +428,12 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         }
 
         // gets metadata from worker
-        public Task<List<FunctionMetadata>> WorkerGetFunctionMetadata()
+        public Task<IEnumerable<FunctionMetadata>> WorkerGetFunctionMetadata()
         {
             return SendWorkerMetadataRequest();
         }
 
-        internal Task<List<FunctionMetadata>> SendWorkerMetadataRequest()
+        internal Task<IEnumerable<FunctionMetadata>> SendWorkerMetadataRequest()
         {
             _eventSubscriptions.Add(_inboundWorkerEvents.Where(msg => msg.MessageType == MsgType.WorkerFunctionMetadataResponse)
                         .Timeout(_functionLoadTimeout)
