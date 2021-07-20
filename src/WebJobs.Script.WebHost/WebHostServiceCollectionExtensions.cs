@@ -165,6 +165,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
             services.ConfigureOptions<ScriptApplicationHostOptionsSetup>();
             services.ConfigureOptions<StandbyOptionsSetup>();
             services.ConfigureOptions<LanguageWorkerOptionsSetup>();
+            services.ConfigureOptions<WorkerConcurrencyOptionsSetup>();
             services.ConfigureOptionsWithChangeTokenSource<AppServiceOptions, AppServiceOptionsSetup, SpecializationChangeTokenSource<AppServiceOptions>>();
             services.ConfigureOptionsWithChangeTokenSource<HttpBodyControlOptions, HttpBodyControlOptionsSetup, SpecializationChangeTokenSource<HttpBodyControlOptions>>();
 

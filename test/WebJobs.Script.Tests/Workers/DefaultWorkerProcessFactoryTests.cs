@@ -4,10 +4,12 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using Microsoft.Azure.WebJobs.Script.Workers;
 using Microsoft.Azure.WebJobs.Script.Workers.Http;
 using Microsoft.Azure.WebJobs.Script.Workers.Rpc;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
@@ -37,18 +39,18 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
                 yield return new object[]
                 {
                     new RpcWorkerContext(
-                    "testId",
-                    500,
-                    "testWorkerId",
-                    new WorkerProcessArguments()
-                    {
-                        ExecutablePath = "test",
-                        ExecutableArguments = new List<string>() { "%httpkey1%", "%TestEnv%" },
-                        WorkerArguments = new List<string>() { "%httpkey2%" }
-                    },
-                    "c:\testDir",
-                    new Uri("http://localhost"),
-                    new Dictionary<string, string>() { { "httpkey1", "httpvalue1" }, { "httpkey2", "httpvalue2" } })
+                        "testId",
+                        500,
+                        "testWorkerId",
+                        new WorkerProcessArguments()
+                        {
+                            ExecutablePath = "test",
+                            ExecutableArguments = new List<string>() { "%httpkey1%", "%TestEnv%" },
+                            WorkerArguments = new List<string>() { "%httpkey2%" }
+                        },
+                        "c:\testDir",
+                        new Uri("http://localhost"),
+                        new Dictionary<string, string>() { { "httpkey1", "httpvalue1" }, { "httpkey2", "httpvalue2" } })
                 };
             }
         }
@@ -66,7 +68,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
         public void DefaultWorkerProcessFactory_Returns_ExpectedProcess(WorkerContext workerContext)
         {
             Environment.SetEnvironmentVariable("TestEnv", "TestVal");
-            DefaultWorkerProcessFactory defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(_loggerFactory);
+            DefaultWorkerProcessFactory defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(_loggerFactory, Options.Create(new WorkerConcurrencyOptions()));
             Process childProcess = defaultWorkerProcessFactory.CreateWorkerProcess(workerContext);
 
             var expectedEnvVars = workerContext.EnvironmentVariables;
@@ -93,7 +95,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
         [MemberData(nameof(InvalidWorkerContexts))]
         public void DefaultWorkerProcessFactory_InvalidWorkerContext_Throws(WorkerContext workerContext)
         {
-            DefaultWorkerProcessFactory defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(_loggerFactory);
+            DefaultWorkerProcessFactory defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(_loggerFactory, Options.Create(new WorkerConcurrencyOptions()));
             Assert.Throws<ArgumentNullException>(() => defaultWorkerProcessFactory.CreateWorkerProcess(workerContext));
         }
 
@@ -104,11 +106,40 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers
         public void DefaultWorkerProcessFactory_SanitizeExpandedArgs(string inputString, string expectedResult)
         {
             Environment.SetEnvironmentVariable("TestEnv", "TestVal");
-            DefaultWorkerProcessFactory defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(_loggerFactory);
+            DefaultWorkerProcessFactory defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(_loggerFactory, Options.Create(new WorkerConcurrencyOptions()));
             var expandedArgs = Environment.ExpandEnvironmentVariables(inputString);
             var result = defaultWorkerProcessFactory.SanitizeExpandedArgument(expandedArgs);
             Assert.Equal(expectedResult, result);
             Environment.SetEnvironmentVariable("TestEnv", string.Empty);
+        }
+
+        [Theory]
+        [InlineData(RpcWorkerConstants.PythonTreadpoolThreadCount, RpcWorkerConstants.PythonLanguageWorkerName, RpcWorkerConstants.DefaultConcurrencyPython)]
+        [InlineData(RpcWorkerConstants.PSWorkerInProcConcurrencyUpperBound, RpcWorkerConstants.PowerShellLanguageWorkerName, RpcWorkerConstants.DefaultConcurrencyPS)]
+        public void DefaultWorkerProcessFactory_LanguageWorkerConcurrency_Overwrite(string appSettingName, string funcrionWorkerRuntime, string defaultConcurrecny)
+        {
+            Environment.SetEnvironmentVariable(RpcWorkerConstants.FunctionWorkerRuntimeSettingName, funcrionWorkerRuntime);
+            DefaultWorkerProcessFactory defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(_loggerFactory,
+                Options.Create(new WorkerConcurrencyOptions()
+                {
+                    Enabled = true
+                }));
+            Process process = defaultWorkerProcessFactory.CreateWorkerProcess(TestWorkerContexts.ToList()[1][0] as WorkerContext);
+            Assert.Equal(process.StartInfo.EnvironmentVariables[appSettingName], defaultConcurrecny);
+            Environment.SetEnvironmentVariable(RpcWorkerConstants.FunctionWorkerRuntimeSettingName, string.Empty);
+        }
+
+        [Theory]
+        [InlineData(RpcWorkerConstants.PythonTreadpoolThreadCount, RpcWorkerConstants.PythonLanguageWorkerName)]
+        [InlineData(RpcWorkerConstants.PSWorkerInProcConcurrencyUpperBound, RpcWorkerConstants.PowerShellLanguageWorkerName)]
+        public void DefaultWorkerProcessFactory_LanguageWorkerConcurrency_NoChanges(string appSettingName, string funcrionWorkerRuntime)
+        {
+            Environment.SetEnvironmentVariable(RpcWorkerConstants.FunctionWorkerRuntimeSettingName, funcrionWorkerRuntime);
+            DefaultWorkerProcessFactory defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(_loggerFactory,
+                Options.Create(new WorkerConcurrencyOptions()));
+            Process process = defaultWorkerProcessFactory.CreateWorkerProcess(TestWorkerContexts.ToList()[1][0] as WorkerContext);
+            Assert.False(process.StartInfo.EnvironmentVariables.ContainsKey(appSettingName));
+            Environment.SetEnvironmentVariable(RpcWorkerConstants.FunctionWorkerRuntimeSettingName, string.Empty);
         }
 
         public IDictionary<string, string> GetTestEnvVars()

@@ -518,6 +518,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
                 WorkerConfigs = TestHelpers.GetTestWorkerConfigs(processCountValue: maxProcessCountValue, processStartupInterval: intervals,
                                     processRestartInterval: intervals, processShutdownTimeout: TimeSpan.FromSeconds(1))
             };
+            var concurrencyOptions = Options.Create(new WorkerConcurrencyOptions());
             IRpcWorkerChannelFactory testLanguageWorkerChannelFactory = new TestRpcWorkerChannelFactory(eventManager, _testLogger, scriptOptions.Value.RootScriptPath, throwOnProcessStartUp);
             IWebHostRpcWorkerChannelManager testWebHostLanguageWorkerChannelManager = new TestRpcWorkerChannelManager(eventManager, _testLogger, scriptOptions.Value.RootScriptPath, testLanguageWorkerChannelFactory);
             IJobHostRpcWorkerChannelManager jobHostLanguageWorkerChannelManager = new JobHostRpcWorkerChannelManager(_testLoggerFactory);
@@ -544,7 +545,8 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
                 testWebHostLanguageWorkerChannelManager,
                 jobHostLanguageWorkerChannelManager,
                 new OptionsWrapper<ManagedDependencyOptions>(new ManagedDependencyOptions()),
-                mockFunctionDispatcherLoadBalancer.Object);
+                mockFunctionDispatcherLoadBalancer.Object,
+                concurrencyOptions);
         }
 
         private async Task<int> WaitForJobhostWorkerChannelsToStartup(RpcFunctionInvocationDispatcher functionDispatcher, int expectedCount, bool allReadyForInvocations = true)

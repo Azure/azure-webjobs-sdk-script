@@ -40,6 +40,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         private readonly IEnvironment _environment;
         private readonly IOptionsMonitor<ScriptApplicationHostOptions> _applicationHostOptions;
         private readonly ISharedMemoryManager _sharedMemoryManager;
+        private readonly IOptions<WorkerConcurrencyOptions> _concurrencyOptions;
 
         private IDisposable _functionLoadRequestResponseEvent;
         private bool _disposed;
@@ -67,6 +68,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         private TaskCompletionSource<List<FunctionMetadata>> _functionsIndexingTask = new TaskCompletionSource<List<FunctionMetadata>>(TaskCreationOptions.RunContinuationsAsynchronously);
         private TimeSpan _functionLoadTimeout = TimeSpan.FromMinutes(10);
         private bool _isSharedMemoryDataTransferEnabled;
+        private WorkerChannelMonitor _monitor;
 
         internal GrpcWorkerChannel(
            string workerId,
@@ -78,7 +80,8 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
            int attemptCount,
            IEnvironment environment,
            IOptionsMonitor<ScriptApplicationHostOptions> applicationHostOptions,
-           ISharedMemoryManager sharedMemoryManager)
+           ISharedMemoryManager sharedMemoryManager,
+           IOptions<WorkerConcurrencyOptions> concurrencyOptions)
         {
             _workerId = workerId;
             _eventManager = eventManager;
@@ -90,6 +93,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             _environment = environment;
             _applicationHostOptions = applicationHostOptions;
             _sharedMemoryManager = sharedMemoryManager;
+            _concurrencyOptions = concurrencyOptions;
 
             _workerCapabilities = new GrpcCapabilities(_workerChannelLogger);
 
@@ -118,6 +122,8 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             _startLatencyMetric = metricsLogger?.LatencyEvent(string.Format(MetricEventNames.WorkerInitializeLatency, workerConfig.Description.Language, attemptCount));
 
             _state = RpcWorkerChannelState.Default;
+
+            _monitor = new WorkerChannelMonitor(this, _concurrencyOptions);
         }
 
         public string Id => _workerId;
@@ -171,6 +177,12 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                     workerStatus.Latency = sw.Elapsed;
                     _workerChannelLogger.LogDebug($"[HostMonitor] Worker status request took {sw.ElapsedMilliseconds}ms");
                 }
+            }
+
+            if (_concurrencyOptions.Value.Enabled)
+            {
+                workerStatus.IsReady = IsChannelReadyForInvocations();
+                workerStatus.WorkerStats = _monitor.GetStats();
             }
 
             return workerStatus;

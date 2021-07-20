@@ -30,7 +30,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
             IRpcFunctionInvocationDispatcherLoadBalancer loadBalancer = new RpcFunctionInvocationDispatcherLoadBalancer();
             for (int index = 0; index < 100; index++)
             {
-                results.Add(loadBalancer.GetLanguageWorkerChannel(workerChannels, workerChannels.Count()));
+                results.Add(loadBalancer.GetLanguageWorkerChannel(workerChannels));
             }
             var channelGroupsQuery = results.GroupBy(r => r.Id)
             .Select(g => new { Value = g.Key, Count = g.Count() });
@@ -59,7 +59,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
             IRpcFunctionInvocationDispatcherLoadBalancer loadBalancer = new RpcFunctionInvocationDispatcherLoadBalancer();
             for (int index = 0; index < 100; index++)
             {
-                results.Add(loadBalancer.GetLanguageWorkerChannel(workerChannels, workerChannels.Count()));
+                results.Add(loadBalancer.GetLanguageWorkerChannel(workerChannels));
             }
             var channelGroupsQuery = results.GroupBy(r => r.Id)
             .Select(g => new { Value = g.Key, Count = g.Count() });
@@ -84,7 +84,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
             RpcFunctionInvocationDispatcherLoadBalancer functionDispatcherLoadBalancer = loadBalancer as RpcFunctionInvocationDispatcherLoadBalancer;
             for (int index = 0; index < 10; index++)
             {
-                loadBalancer.GetLanguageWorkerChannel(workerChannels, 1);
+                loadBalancer.GetLanguageWorkerChannel(workerChannels);
                 Assert.Equal(0, functionDispatcherLoadBalancer.Counter);
             }
         }
@@ -98,7 +98,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
 
             var ex = Assert.Throws<InvalidOperationException>(() =>
             {
-                loadBalancer.GetLanguageWorkerChannel(workerChannels, workerChannels.Count());
+                loadBalancer.GetLanguageWorkerChannel(workerChannels);
             });
 
             Assert.Equal($"Did not find any initialized language workers", ex.Message);

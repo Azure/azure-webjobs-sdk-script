@@ -6,21 +6,25 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Azure.WebJobs.Script.Workers.Rpc;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Microsoft.Azure.WebJobs.Script.Workers
 {
     internal class DefaultWorkerProcessFactory : IWorkerProcessFactory
     {
-        private ILogger _logger;
+        private readonly IOptions<WorkerConcurrencyOptions> _concurrencyOptions;
+        private readonly ILogger _logger;
 
-        public DefaultWorkerProcessFactory(ILoggerFactory loggerFactory)
+        public DefaultWorkerProcessFactory(ILoggerFactory loggerFactory, IOptions<WorkerConcurrencyOptions> concurrencyOptions)
         {
             if (loggerFactory == null)
             {
                 throw new ArgumentNullException(nameof(loggerFactory));
             }
             _logger = loggerFactory.CreateLogger<DefaultWorkerProcessFactory>();
+            _concurrencyOptions = concurrencyOptions ?? throw new ArgumentNullException(nameof(concurrencyOptions));
         }
 
         public virtual Process CreateWorkerProcess(WorkerContext context)
@@ -47,6 +51,9 @@ namespace Microsoft.Azure.WebJobs.Script.Workers
                 WorkingDirectory = context.WorkingDirectory,
                 Arguments = GetArguments(context),
             };
+
+            ApplyWorkerConcurrencyLimits(startInfo);
+
             var processEnvVariables = context.EnvironmentVariables;
             if (processEnvVariables != null && processEnvVariables.Any())
             {
@@ -88,6 +95,23 @@ namespace Microsoft.Azure.WebJobs.Script.Workers
                 envExpandedString = envExpandedString.Replace(match.Value, string.Empty);
             }
             return envExpandedString;
+        }
+
+        internal void ApplyWorkerConcurrencyLimits(ProcessStartInfo startInfo)
+        {
+            if (_concurrencyOptions.Value.Enabled)
+            {
+                // Remove concurrency limits for Python and Powershell language workers
+                string functionWorkerRuntime = startInfo.EnvironmentVariables[RpcWorkerConstants.FunctionWorkerRuntimeSettingName];
+                if (functionWorkerRuntime == RpcWorkerConstants.PythonLanguageWorkerName)
+                {
+                    startInfo.EnvironmentVariables[RpcWorkerConstants.PythonTreadpoolThreadCount] = RpcWorkerConstants.DefaultConcurrencyPython;
+                }
+                if (functionWorkerRuntime == RpcWorkerConstants.PowerShellLanguageWorkerName)
+                {
+                    startInfo.EnvironmentVariables[RpcWorkerConstants.PSWorkerInProcConcurrencyUpperBound] = RpcWorkerConstants.DefaultConcurrencyPS;
+                }
+            }
         }
     }
 }

@@ -7,14 +7,10 @@ using Microsoft.Azure.WebJobs.Script.Description;
 
 namespace Microsoft.Azure.WebJobs.Script.Workers
 {
-    public interface IHttpWorkerChannel
+    public interface IHttpWorkerChannel : IWorkerChannel
     {
-        string Id { get; }
-
         Task InvokeAsync(ScriptInvocationContext context);
 
         Task StartWorkerProcessAsync(CancellationToken cancellationToken = default);
-
-        Task<WorkerStatus> GetWorkerStatusAsync();
     }
 }

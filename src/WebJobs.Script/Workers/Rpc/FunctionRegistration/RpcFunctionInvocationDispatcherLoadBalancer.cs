@@ -14,7 +14,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
 
         internal int Counter => _counter;
 
-        public IRpcWorkerChannel GetLanguageWorkerChannel(IEnumerable<IRpcWorkerChannel> rpcWorkerChannels, int maxProcessCount)
+        public IRpcWorkerChannel GetLanguageWorkerChannel(IEnumerable<IRpcWorkerChannel> rpcWorkerChannels)
         {
             if (rpcWorkerChannels == null)
             {
@@ -26,7 +26,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
             {
                 throw new InvalidOperationException($"Did not find any initialized language workers");
             }
-            if (maxProcessCount == 1)
+            if (currentNumberOfWorkers == 1)
             {
                 return rpcWorkerChannels.FirstOrDefault();
             }

@@ -24,12 +24,14 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
     internal class RpcFunctionInvocationDispatcher : IFunctionInvocationDispatcher
     {
         private readonly IMetricsLogger _metricsLogger;
+        private readonly ILoggerFactory _loggerFactory;
         private readonly ILogger _logger;
         private readonly IRpcWorkerChannelFactory _rpcWorkerChannelFactory;
         private readonly IEnvironment _environment;
         private readonly IApplicationLifetime _applicationLifetime;
-        private readonly SemaphoreSlim _restartWorkerProcessSLock = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _startWorkerProcessSLock = new SemaphoreSlim(1, 1);
         private readonly TimeSpan _thresholdBetweenRestarts = TimeSpan.FromMinutes(WorkerConstants.WorkerRestartErrorIntervalThresholdInMinutes);
+        private readonly IOptions<WorkerConcurrencyOptions> _concurrencyOptions;
 
         private IScriptEventManager _eventManager;
         private IEnumerable<RpcWorkerConfig> _workerConfigs;
@@ -64,7 +66,8 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
             IWebHostRpcWorkerChannelManager webHostLanguageWorkerChannelManager,
             IJobHostRpcWorkerChannelManager jobHostLanguageWorkerChannelManager,
             IOptions<ManagedDependencyOptions> managedDependencyOptions,
-            IRpcFunctionInvocationDispatcherLoadBalancer functionDispatcherLoadBalancer)
+            IRpcFunctionInvocationDispatcherLoadBalancer functionDispatcherLoadBalancer,
+            IOptions<WorkerConcurrencyOptions> concurrencyOptions)
         {
             _metricsLogger = metricsLogger;
             _scriptOptions = scriptHostOptions.Value;
@@ -75,10 +78,12 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
             _eventManager = eventManager;
             _workerConfigs = languageWorkerOptions.CurrentValue.WorkerConfigs;
             _managedDependencyOptions = managedDependencyOptions ?? throw new ArgumentNullException(nameof(managedDependencyOptions));
+            _loggerFactory = loggerFactory;
             _logger = loggerFactory.CreateLogger<RpcFunctionInvocationDispatcher>();
             _rpcWorkerChannelFactory = rpcWorkerChannelFactory;
             _workerRuntime = _environment.GetEnvironmentVariable(RpcWorkerConstants.FunctionWorkerRuntimeSettingName);
             _functionDispatcherLoadBalancer = functionDispatcherLoadBalancer;
+            _concurrencyOptions = concurrencyOptions;
             State = FunctionInvocationDispatcherState.Default;
 
             _workerErrorSubscription = _eventManager.OfType<WorkerErrorEvent>()
@@ -131,6 +136,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
             IRpcWorkerChannel workerChannel = await _webHostLanguageWorkerChannelManager.InitializeChannelAsync(_workerRuntime);
             workerChannel.SetupFunctionInvocationBuffers(_functions);
             workerChannel.SendFunctionLoadRequests(_managedDependencyOptions.Value, _scriptOptions.FunctionTimeout);
+            SetFunctionDispatcherStateToInitializedAndLog();
         }
 
         internal async void ShutdownWebhostLanguageWorkerChannels()
@@ -146,6 +152,11 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
                 for (var count = startIndex; count < _maxProcessCount
                     && !_processStartCancellationToken.IsCancellationRequested; count++)
                 {
+                    if (_concurrencyOptions.Value.Enabled && count > 0)
+                    {
+                        // Make sure only one worker is started if concurancy is enabled
+                        return;
+                    }
                     try
                     {
                         await startAction();
@@ -192,7 +203,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
                 // With .NET out-of-proc, worker config comes from functions.
                 throw new InvalidOperationException($"WorkerCofig for runtime: {_workerRuntime} not found");
             }
-            _maxProcessCount = workerConfig.CountOptions.ProcessCount;
+            _maxProcessCount = _concurrencyOptions.Value.Enabled ? _concurrencyOptions.Value.MaxWorkerCount : workerConfig.CountOptions.ProcessCount;
             _processStartupInterval = workerConfig.CountOptions.ProcessStartupInterval;
             _restartWait = workerConfig.CountOptions.ProcessRestartInterval;
             _shutdownTimeout = workerConfig.CountOptions.ProcessShutdownTimeout;
@@ -282,7 +293,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
         {
             // This could throw if no initialized workers are found. Shut down instance and retry.
             IEnumerable<IRpcWorkerChannel> workerChannels = await GetInitializedWorkerChannelsAsync();
-            var rpcWorkerChannel = _functionDispatcherLoadBalancer.GetLanguageWorkerChannel(workerChannels, _maxProcessCount);
+            var rpcWorkerChannel = _functionDispatcherLoadBalancer.GetLanguageWorkerChannel(workerChannels);
             if (rpcWorkerChannel.FunctionInputBuffers.TryGetValue(invocationContext.FunctionMetadata.GetFunctionId(), out BufferBlock<ScriptInvocationContext> bufferBlock))
             {
                 _logger.LogTrace("Posting invocation id:{InvocationId} on workerId:{workerChannelId}", invocationContext.ExecutionContext.InvocationId, rpcWorkerChannel.Id);
@@ -355,6 +366,11 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
             await DisposeAndRestartWorkerChannel(workerRestart.Language, workerRestart.WorkerId);
         }
 
+        public async Task StartWorkerChannel()
+        {
+            await StartWorkerChannel(null);
+        }
+
         private async Task DisposeAndRestartWorkerChannel(string runtime, string workerId, Exception workerException = null)
         {
             if (_disposing || _disposed)
@@ -385,7 +401,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
                 }
                 // Restart worker channel
                 _logger.LogDebug("Restarting worker channel for runtime: '{runtime}'", runtime);
-                await RestartWorkerChannel(runtime);
+                await StartWorkerChannel(runtime);
                 // State is set back to "Initialized" when worker channel is up again
             }
             else
@@ -400,11 +416,16 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
             return string.Equals(_workerRuntime, runtime, StringComparison.InvariantCultureIgnoreCase) && (isWebHostChannel || isJobHostChannel);
         }
 
-        private async Task RestartWorkerChannel(string runtime)
+        private async Task StartWorkerChannel(string runtime)
         {
             if (_disposing || _disposed)
             {
                 return;
+            }
+
+            if (string.IsNullOrEmpty(runtime))
+            {
+                runtime = _workerRuntime;
             }
 
             if (_languageWorkerErrors.Count < ErrorEventsThreshold)
@@ -412,7 +433,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
                 try
                 {
                     // Issue only one restart at a time.
-                    await _restartWorkerProcessSLock.WaitAsync();
+                    await _startWorkerProcessSLock.WaitAsync();
                     await InitializeJobhostLanguageWorkerChannelAsync(_languageWorkerErrors.Count);
                 }
                 finally
@@ -421,7 +442,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
                     try
                     {
                         await Task.Delay(_restartWait, _disposeToken.Token);
-                        _restartWorkerProcessSLock.Release();
+                        _startWorkerProcessSLock.Release();
                     }
                     catch (TaskCanceledException)
                     {
@@ -460,7 +481,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
                     _logger.LogDebug("Disposing FunctionDispatcher");
                     _disposeToken.Cancel();
                     _disposeToken.Dispose();
-                    _restartWorkerProcessSLock.Dispose();
+                    _startWorkerProcessSLock.Dispose();
                     _workerErrorSubscription.Dispose();
                     _workerRestartSubscription.Dispose();
                     _processStartCancellationToken.Cancel();

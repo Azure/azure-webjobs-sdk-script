@@ -251,6 +251,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 services.AddSingleton<IScriptJobHost>(p => p.GetRequiredService<ScriptHost>());
                 services.AddSingleton<IJobHost>(p => p.GetRequiredService<ScriptHost>());
                 services.AddSingleton<IFunctionProvider, ProxyFunctionProvider>();
+                services.AddSingleton<IHostedService, WorkerConcurrencyManager>();
 
                 services.AddSingleton<ITypeLocator, ScriptTypeLocator>();
                 services.AddSingleton<ScriptSettingsManager>();
@@ -273,6 +274,7 @@ namespace Microsoft.Azure.WebJobs.Script
                 services.ConfigureOptions<LanguageWorkerOptionsSetup>();
                 services.ConfigureOptions<HttpWorkerOptionsSetup>();
                 services.ConfigureOptions<ManagedDependencyOptionsSetup>();
+                services.ConfigureOptions<WorkerConcurrencyOptionsSetup>();
                 services.AddOptions<FunctionResultAggregatorOptions>()
                     .Configure<IConfiguration>((o, c) =>
                     {
@@ -343,6 +345,7 @@ namespace Microsoft.Azure.WebJobs.Script
             services.TryAddSingleton<IEnvironment>(SystemEnvironment.Instance);
             services.TryAddSingleton<HostPerformanceManager>();
             services.ConfigureOptions<HostHealthMonitorOptionsSetup>();
+
             AddProcessRegistry(services);
         }
 

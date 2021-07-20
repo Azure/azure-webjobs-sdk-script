@@ -28,6 +28,7 @@ using TableStorageAccount = Microsoft.Azure.Cosmos.Table.CloudStorageAccount;
 using IApplicationLifetime = Microsoft.AspNetCore.Hosting.IApplicationLifetime;
 using Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Options;
 
 namespace Microsoft.Azure.WebJobs.Script.Tests
 {
@@ -40,9 +41,10 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
         private readonly bool _startHost;
         private readonly ICollection<string> _functions;
         private readonly string _functionsWorkerLanguage;
+        private readonly IOptions<WorkerConcurrencyOptions> _concurrencyOptions;
 
         protected ScriptHostEndToEndTestFixture(string rootPath, string testId, string functionsWorkerLanguage, ProxyClientExecutor proxyClient = null,
-            bool startHost = true, ICollection<string> functions = null)
+            bool startHost = true, ICollection<string> functions = null, IOptions<WorkerConcurrencyOptions> concurrencyOptions = null)
         {
             _settingsManager = ScriptSettingsManager.Instance;
             FixtureId = testId;
@@ -56,6 +58,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             _startHost = startHost;
             _functions = functions;
             _functionsWorkerLanguage = functionsWorkerLanguage;
+            _concurrencyOptions = concurrencyOptions;
         }
 
         public TestLoggerProvider LoggerProvider { get; }
@@ -86,7 +89,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
 
         public HttpConfiguration RequestConfiguration { get; }
 
-        public IScriptEventManager EventManager { get; }
+        public IScriptEventManager EventManager { get; set;  }
 
         public async Task InitializeAsync()
         {
@@ -141,6 +144,11 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
                        }
                    });
 
+                   if (_concurrencyOptions != null)
+                   {
+                       services.AddSingleton<IOptions<WorkerConcurrencyOptions>>(_concurrencyOptions);
+                   }
+
                    if (_proxyClient != null)
                    {
                        services.AddSingleton<ProxyClientExecutor>(_proxyClient);
@@ -156,6 +164,10 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
                        services.AddSingleton<IMemoryMappedFileAccessor, MemoryMappedFileAccessorUnix>();
                    }
                    services.AddSingleton<ISharedMemoryManager, SharedMemoryManager>();
+                   if (_concurrencyOptions != null)
+                   {
+                       services.AddSingleton<IScriptEventManager, WorkerConcurancyManagerEndToEndTests.TestScriptEventManager>();
+                   }
 
                    ConfigureServices(services);
                })

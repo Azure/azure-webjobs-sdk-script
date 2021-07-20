@@ -30,7 +30,8 @@ namespace Microsoft.Azure.WebJobs.Script.Workers
             IWebHostRpcWorkerChannelManager webHostLanguageWorkerChannelManager,
             IJobHostRpcWorkerChannelManager jobHostLanguageWorkerChannelManager,
             IOptions<ManagedDependencyOptions> managedDependencyOptions,
-            IRpcFunctionInvocationDispatcherLoadBalancer functionDispatcherLoadBalancer)
+            IRpcFunctionInvocationDispatcherLoadBalancer functionDispatcherLoadBalancer,
+            IOptions<WorkerConcurrencyOptions> concurrencyOptions)
         {
             if (httpWorkerOptions.Value == null)
             {
@@ -53,7 +54,8 @@ namespace Microsoft.Azure.WebJobs.Script.Workers
                 webHostLanguageWorkerChannelManager,
                 jobHostLanguageWorkerChannelManager,
                 managedDependencyOptions,
-                functionDispatcherLoadBalancer);
+                functionDispatcherLoadBalancer,
+                concurrencyOptions);
         }
 
         public IFunctionInvocationDispatcher GetFunctionDispatcher() => _functionDispatcher;

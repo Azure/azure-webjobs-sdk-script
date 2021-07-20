@@ -8,6 +8,7 @@ using Microsoft.Azure.WebJobs.Script.Eventing;
 using Microsoft.Azure.WebJobs.Script.Workers;
 using Microsoft.Azure.WebJobs.Script.Workers.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -20,7 +21,7 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Http
         private const int _workerPort = 8090;
         private readonly ScriptSettingsManager _settingsManager;
         private readonly Mock<IScriptEventManager> _mockEventManager = new Mock<IScriptEventManager>();
-        private readonly IWorkerProcessFactory _defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(new LoggerFactory());
+        private readonly IWorkerProcessFactory _defaultWorkerProcessFactory = new DefaultWorkerProcessFactory(new LoggerFactory(), Options.Create(new WorkerConcurrencyOptions()));
         private readonly IProcessRegistry _processRegistry = new EmptyProcessRegistry();
         private readonly Mock<IWorkerConsoleLogSource> _languageWorkerConsoleLogSource = new Mock<IWorkerConsoleLogSource>();
         private readonly TestLogger _testLogger = new TestLogger("test");
